@@ -2,9 +2,9 @@
 //  SPDX-License-Identifier: MIT
 #pragma once
 
-#ifdef _WINDOWS
+#if (defined _WIN32) || (defined __MINGW32__)
 
-#include <Timekeeper/Duration.hh>
+#include <libTimekeeper/Duration.hh>
 #include <chrono>
 
 #ifdef NOMINMAX
@@ -33,4 +33,4 @@ inline std::pair<Duration::Dur, Duration::Dur> user_system_now()
 
 } // namespace Timekeeper::detail
 
-#endif
+#endif // windows
