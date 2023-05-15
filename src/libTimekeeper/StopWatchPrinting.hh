@@ -97,12 +97,22 @@ inline std::string format_ms(ChronoDuration dur) {
 
 using PT = PrintedTable<5>;
 
+#ifdef _WIN32
+inline const std::string symbol_branch ="+ ";
+inline const std::string symbol_vert = "| ";
+inline const std::string symbol_lastbranch = "\ ";
+#else
+inline const std::string symbol_branch ="├ ";
+inline const std::string symbol_vert = "│ ";
+inline const std::string symbol_lastbranch = "╰ ";
+#endif
+
 inline void add_to_table(PT &table, const HierarchicalStopWatchResult &wr, size_t depth=0)
 {
-    std::string tree = strrep("│ " , depth > 1 ? depth - 1 : 0);
+    std::string tree = strrep(symbol_vert, depth > 1 ? depth - 1 : 0);
     std::string tree_name = tree;
     if (depth > 0) {
-        tree_name.append("├ ");
+        tree_name.append(symbol_branch);
     }
     tree_name.append(wr.name);
     std::string dur_wall, dur_user, dur_sys, count;
@@ -123,9 +133,9 @@ inline void add_to_table(PT &table, const HierarchicalStopWatchResult &wr, size_
     {
       std::string tree_total = tree;
       if (depth > 0) {
-        tree_total.append("│ ");
+        tree_total.append(symbol_vert);
       }
-      tree_total.append("╰ ");
+      tree_total.append(symbol_lastbranch);
       if (!wr.is_group()) {
         tree_total.append("(unaccounted)");
         auto unaccounted = wr.unaccounted();
