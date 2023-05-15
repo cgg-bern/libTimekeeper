@@ -18,3 +18,4 @@ cppcheck.log
 
 # misc
 .DS_Store
+.cache
