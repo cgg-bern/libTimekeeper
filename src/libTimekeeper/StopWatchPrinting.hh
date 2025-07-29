@@ -100,7 +100,7 @@ using PT = PrintedTable<5>;
 #ifdef _WIN32
 inline const std::string symbol_branch ="+ ";
 inline const std::string symbol_vert = "| ";
-inline const std::string symbol_lastbranch = "\ ";
+inline const std::string symbol_lastbranch = "\\ ";
 #else
 inline const std::string symbol_branch ="├ ";
 inline const std::string symbol_vert = "│ ";
