@@ -42,20 +42,20 @@ write_basic_package_version_file(
     )
 
 install(TARGETS libTimekeeper
-    EXPORT libTimekeeperTargets
+    EXPORT TimekeeperTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-install(EXPORT libTimekeeperTargets
-    FILE libTimekeeperTargets.cmake
+install(EXPORT TimekeeperTargets
+    FILE TimekeeperTargets.cmake
     NAMESPACE Timekeeper::
     DESTINATION ${INSTALL_CONFIGDIR}
 )
 
-export(EXPORT libTimekeeperTargets
+export(EXPORT TimekeeperTargets
     NAMESPACE Timekeeper::)
 
 # Install Header Files
