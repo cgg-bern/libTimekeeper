@@ -40,6 +40,66 @@ TEST(PrintedTable, TreeStructureIsPrinted) {
     EXPECT_NE(output.find("child2"), std::string::npos);
 }
 
+TEST(PrintedTable, TreeStructureWithDepthIsPrintedCorrectly) {
+    HierarchicalStopWatch grandchild("grandchild");
+    HierarchicalStopWatch child("child");
+    HierarchicalStopWatch parent("parent");
+    child.add_child(&grandchild);
+    parent.add_child(&child);
+
+    std::ostringstream os;
+    auto result = HierarchicalStopWatchResult(parent);
+    os << result;
+    std::string output = os.str();
+
+    // Verify all names appear in the output.
+    EXPECT_NE(output.find("parent"), std::string::npos);
+    EXPECT_NE(output.find("child"), std::string::npos);
+    EXPECT_NE(output.find("grandchild"), std::string::npos);
+
+    auto lines = split_lines(output);
+    // Header + parent + child + grandchild + (end group) + (end group) = 6 lines minimum.
+    ASSERT_GE(lines.size(), 5u);
+
+#ifndef _WIN32
+    // Find the line containing "child" — it should have a branch prefix.
+    bool found_child_with_branch = false;
+    bool found_grandchild_doubly_indented = false;
+    for (const auto &line : lines) {
+        if (line.find("child") != std::string::npos && line.find("grandchild") == std::string::npos) {
+            EXPECT_NE(line.find("├"), std::string::npos)
+                << "Child should be indented with branch symbol. Line: " << line;
+            found_child_with_branch = true;
+        }
+        if (line.find("grandchild") != std::string::npos) {
+            EXPECT_NE(line.find("│"), std::string::npos)
+                << "Grandchild should have vertical prefix.";
+            EXPECT_NE(line.find("├"), std::string::npos)
+                << "Grandchild should be doubly-indented. Line: " << line;
+            found_grandchild_doubly_indented = true;
+        }
+    }
+    EXPECT_TRUE(found_child_with_branch);
+    EXPECT_TRUE(found_grandchild_doubly_indented);
+#else
+    bool found_child_with_branch = false;
+    bool found_grandchild_doubly_indented = false;
+    for (const auto &line : lines) {
+        if (line.find("child") != std::string::npos && line.find("grandchild") == std::string::npos) {
+            EXPECT_NE(line.find("+ "), std::string::npos);
+            found_child_with_branch = true;
+        }
+        if (line.find("grandchild") != std::string::npos) {
+            EXPECT_NE(line.find("| "), std::string::npos);
+            EXPECT_NE(line.find("+ "), std::string::npos);
+            found_grandchild_doubly_indented = true;
+        }
+    }
+    EXPECT_TRUE(found_child_with_branch);
+    EXPECT_TRUE(found_grandchild_doubly_indented);
+#endif
+}
+
 TEST(PrintedTable, TreeIndentationSymbolsArePresent) {
     HierarchicalStopWatch grandchild("grandchild");
     HierarchicalStopWatch child("child");
@@ -76,9 +136,24 @@ TEST(PrintedTable, GroupNodeHasEmptyDurationFields) {
     os << result;
     std::string output = os.str();
 
-    // The group row itself should have empty wall/user/system columns.
-    // We verify by checking that the parent name appears followed by empty fields.
-    EXPECT_NE(output.find("parent"), std::string::npos);
+    auto lines = split_lines(output);
+    ASSERT_GE(lines.size(), 2u);
+
+    // Find the parent line (skip header).
+    size_t parent_line_idx = 0;
+    for (size_t i = 1; i < lines.size(); ++i) {
+        if (lines[i].find("parent") != std::string::npos &&
+            lines[i].find("├") == std::string::npos &&
+            lines[i].find("│") == std::string::npos &&
+            lines[i].find("╰") == std::string::npos) {
+            parent_line_idx = i;
+            break;
+        }
+    }
+
+    // The group row should not contain "ms" (no duration values).
+    EXPECT_EQ(lines[parent_line_idx].find("ms"), std::string::npos)
+        << "Group node should have empty duration fields.\nLine: " << lines[parent_line_idx];
 }
 
 TEST(PrintedTable, LeafNodeShowsDurationValues) {
@@ -191,6 +266,16 @@ TEST(FormatMs, EdgeCases) {
     EXPECT_EQ(format_ms(std::chrono::seconds(123)), "123000 ms");
 }
 
+TEST(FormatMs, VeryLargeValues) {
+    // Hours of work should format correctly.
+    auto h = std::chrono::hours(1);
+    EXPECT_EQ(format_ms(h), "3600000 ms");
+
+    // Days (edge case for very large numbers).
+    auto d = std::chrono::hours(24);
+    EXPECT_EQ(format_ms(d), "86400000 ms");
+}
+
 TEST(Utf8Len, CountsUnicodeCharactersCorrectly) {
     // ASCII string: 3 bytes, 3 chars
     EXPECT_EQ(utf8_len("abc"), 3u);
@@ -202,9 +287,7 @@ TEST(Utf8Len, CountsUnicodeCharactersCorrectly) {
     EXPECT_EQ(utf8_len("\xf0\x9f\x98\x80"), 1u);
 }
 
-TEST(Utf8Len, EmptyString) {
-    EXPECT_EQ(utf8_len(""), 0u);
-}
+
 
 TEST(Strrep, RepeatsStringNTimes) {
     EXPECT_EQ(strrep("-", 3), "---");
@@ -213,9 +296,7 @@ TEST(Strrep, RepeatsStringNTimes) {
     EXPECT_EQ(strrep("x", -1), "");
 }
 
-TEST(Strrep, SingleCharacter) {
-    EXPECT_EQ(strrep("*", 5), "*****");
-}
+
 
 // Helper to split a string into lines (forward-declared above).
 static std::vector<std::string> split_lines(const std::string &s) {

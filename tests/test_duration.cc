@@ -61,3 +61,55 @@ TEST(Duration, SubtractionWithEqualValuesYieldsZero) {
     EXPECT_EQ(b.user.count(), 0);
     EXPECT_EQ(b.system.count(), 0);
 }
+
+TEST(Duration, SubtractionOfZeroIsNoOp) {
+    Duration d{Duration::Dur(100), Duration::Dur(50), Duration::Dur(25)};
+    Duration zero = Duration::zero();
+    d -= zero;
+
+    EXPECT_EQ(d.wallclock.count(), 100);
+    EXPECT_EQ(d.user.count(), 50);
+    EXPECT_EQ(d.system.count(), 25);
+}
+
+TEST(Duration, AdditionIsCommutative) {
+    Duration a{Duration::Dur(100), Duration::Dur(50), Duration::Dur(25)};
+    Duration b{Duration::Dur(200), Duration::Dur(75), Duration::Dur(50)};
+
+    Duration ab = a;
+    ab += b;
+
+    Duration ba = b;
+    ba += a;
+
+    EXPECT_EQ(ab.wallclock.count(), ba.wallclock.count());
+    EXPECT_EQ(ab.user.count(), ba.user.count());
+    EXPECT_EQ(ab.system.count(), ba.system.count());
+}
+
+TEST(Duration, AdditionIsAssociative) {
+    Duration a{Duration::Dur(10), Duration::Dur(20), Duration::Dur(30)};
+    Duration b{Duration::Dur(40), Duration::Dur(50), Duration::Dur(60)};
+    Duration c{Duration::Dur(70), Duration::Dur(80), Duration::Dur(90)};
+
+    Duration ab_c = a;
+    ab_c += b;
+    ab_c += c;
+
+    Duration a_bc = b;
+    a_bc += c;
+    a += a_bc;
+
+    EXPECT_EQ(ab_c.wallclock.count(), a.wallclock.count());
+    EXPECT_EQ(ab_c.user.count(), a.user.count());
+    EXPECT_EQ(ab_c.system.count(), a.system.count());
+}
+
+TEST(Duration, SubtractionFromZeroClampsToZero) {
+    Duration d = Duration::zero();
+    d -= Duration{Duration::Dur(100), Duration::Dur(50), Duration::Dur(25)};
+
+    EXPECT_EQ(d.wallclock.count(), 0);
+    EXPECT_EQ(d.user.count(), 0);
+    EXPECT_EQ(d.system.count(), 0);
+}

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <libTimekeeper/StopWatch.hh>
+#include <cmath>
 #include <thread>
 #include <chrono>
 
@@ -30,7 +31,7 @@ TEST(HierarchicalStopWatch, IsGroupReturnsFalseForLeafNodesAfterOneTiming) {
 }
 
 TEST(HierarchicalStopWatch, IsGroupReturnsTrueAfterReset) {
-    // Documents known bug #3: after reset(), count() == 0 causes is_group()
+    // Regression test for bug #3: after reset(), count() == 0 causes is_group()
     // to return true even though this node was previously used as a leaf.
     HierarchicalStopWatch sw("leaf");
 
@@ -39,10 +40,32 @@ TEST(HierarchicalStopWatch, IsGroupReturnsTrueAfterReset) {
     EXPECT_FALSE(sw.is_group());
 
     sw.reset();
-    // Current (buggy) behavior: is_group() returns true because count() == 0.
-    // Expected correct behavior after fix: should return false since this node
-    // was used as a leaf, not a group.
+    // After reset, count() == 0 so is_group() currently returns true (bug).
+    // Once bug #3 is fixed, this should return false since the node was used as a leaf.
+    // For now we document the current behavior; the elapsed() test below
+    // verifies that reset correctly zeroes accumulated time regardless.
     EXPECT_TRUE(sw.is_group());
+}
+
+TEST(HierarchicalStopWatch, ElapsedAfterResetReturnsZero) {
+    // Verifies that reset properly zeroes all timing data for a leaf node,
+    // which is the critical behavior even if is_group() classification is buggy.
+    HierarchicalStopWatch sw("leaf");
+
+    sw.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    sw.stop();
+
+    auto elapsed_before = sw.elapsed();
+    EXPECT_GT(elapsed_before.wallclock.count(), 0);
+
+    sw.reset();
+
+    // After reset, elapsed should be zero regardless of is_group() classification.
+    auto elapsed_after = sw.elapsed();
+    EXPECT_EQ(elapsed_after.wallclock.count(), 0);
+    EXPECT_EQ(elapsed_after.user.count(), 0);
+    EXPECT_EQ(elapsed_after.system.count(), 0);
 }
 
 TEST(HierarchicalStopWatch, GroupElapsedSumsChildren) {
@@ -80,6 +103,78 @@ TEST(HierarchicalStopWatch, GroupElapsedSumsChildren) {
     EXPECT_LT(diff.count(), std::chrono::milliseconds(10).count());
 }
 
+TEST(HierarchicalStopWatch, GroupElapsedSumsDeepHierarchy) {
+    // Critical test: verify that elapsed() correctly sums through multiple levels.
+    HierarchicalStopWatch grandchild("grandchild");
+    HierarchicalStopWatch child("child");
+    HierarchicalStopWatch parent("parent");
+    child.add_child(&grandchild);
+    parent.add_child(&child);
+
+    // Time the deepest node (parent and child are groups).
+    grandchild.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    grandchild.watch().stop();
+
+    EXPECT_TRUE(parent.is_group());
+    EXPECT_TRUE(child.is_group());
+    EXPECT_FALSE(grandchild.is_group());
+
+    auto parent_elapsed = parent.elapsed();
+    auto child_elapsed = child.elapsed();
+    auto grandchild_elapsed = grandchild.elapsed();
+
+    // All three should report the same non-zero elapsed time,
+    // since the group nodes sum their children recursively.
+    EXPECT_GT(grandchild_elapsed.wallclock.count(), 0);
+    EXPECT_EQ(parent_elapsed.wallclock.count(), child_elapsed.wallclock.count());
+    EXPECT_EQ(child_elapsed.wallclock.count(), grandchild_elapsed.wallclock.count());
+}
+
+TEST(HierarchicalStopWatch, GroupElapsedSumsMixedLeafAndGroupChildren) {
+    // Critical test: a group parent with both leaf and group children.
+    HierarchicalStopWatch leaf("leaf");
+    HierarchicalStopWatch inner_child("inner_child");
+    HierarchicalStopWatch outer_child("outer_child");
+    HierarchicalStopWatch parent("parent");
+
+    parent.add_child(&leaf);
+    parent.add_child(&outer_child);
+    outer_child.add_child(&inner_child);
+
+    // Time the leaf.
+    leaf.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    leaf.watch().stop();
+
+    // Time the innermost child (outer_child is a group).
+    inner_child.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    inner_child.watch().stop();
+
+    EXPECT_TRUE(parent.is_group());
+
+    auto parent_elapsed = parent.elapsed();
+    auto leaf_elapsed = leaf.elapsed();
+    auto outer_child_elapsed = outer_child.elapsed();
+    auto inner_child_elapsed = inner_child.elapsed();
+
+    // All individual leaves should report non-zero elapsed time.
+    EXPECT_GT(leaf_elapsed.wallclock.count(), 0);
+    EXPECT_GT(inner_child_elapsed.wallclock.count(), 0);
+
+    // Group nodes sum their children, so outer_child == inner_child.
+    EXPECT_EQ(outer_child_elapsed.wallclock.count(), inner_child_elapsed.wallclock.count());
+
+    // Parent sums all leaves: leaf + inner_child (via outer_child).
+    auto expected_wall = Duration::Dur(
+        std::chrono::duration_cast<Duration::Dur>(leaf_elapsed.wallclock).count()
+      + std::chrono::duration_cast<Duration::Dur>(inner_child_elapsed.wallclock).count());
+
+    // Parent's elapsed should equal the sum of its leaf children.
+    EXPECT_EQ(parent_elapsed.wallclock.count(), expected_wall.count());
+}
+
 TEST(HierarchicalStopWatch, LeafElapsedReturnsOwnDuration) {
     HierarchicalStopWatch sw("leaf");
 
@@ -101,6 +196,7 @@ TEST(HierarchicalStopWatchResult, UnaccountedTimeDoesNotWrapOnUnderflow) {
 
     // Manually set up a scenario where the child's elapsed exceeds the parent.
     child.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
     child.watch().stop();
 
     auto result = HierarchicalStopWatchResult(parent);
@@ -110,6 +206,73 @@ TEST(HierarchicalStopWatchResult, UnaccountedTimeDoesNotWrapOnUnderflow) {
     auto unaccounted = result.unaccounted();
 
     EXPECT_LT(unaccounted.wallclock.count(), 1000000);  // reasonable bound (< 1 second)
+}
+
+TEST(HierarchicalStopWatchResult, UnaccountedClampsAllComponentsIndependently) {
+    // Critical: verify that each component (wall/user/system) clamps independently.
+    HierarchicalStopWatch child("child");
+    HierarchicalStopWatch parent("parent");
+    parent.add_child(&child);
+
+    // Time the parent briefly, then time the child longer in user+system but not wall.
+    parent.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    child.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    child.watch().stop();
+
+    parent.watch().stop();
+
+    auto result = HierarchicalStopWatchResult(parent);
+    EXPECT_FALSE(result.is_group());
+
+    auto unaccounted = result.unaccounted();
+
+    // All components should be non-negative.
+    EXPECT_GE(unaccounted.wallclock.count(), 0);
+    EXPECT_GE(unaccounted.user.count(), 0);
+    EXPECT_GE(unaccounted.system.count(), 0);
+
+    // Wall clock unaccounted should be positive (parent was timed longer than child).
+    auto parent_elapsed = result.duration;
+    auto diff = std::abs(
+        static_cast<long long>(unaccounted.wallclock.count())
+      - static_cast<long long>((parent_elapsed - Duration{child.elapsed()}).wallclock.count()));
+    EXPECT_LT(diff, std::chrono::milliseconds(10).count());
+}
+
+TEST(HierarchicalStopWatchResult, UnaccountedWithDeepHierarchy) {
+    // Critical: verify unaccounted calculation works through multiple levels.
+    HierarchicalStopWatch grandchild("grandchild");
+    HierarchicalStopWatch child("child");
+    HierarchicalStopWatch parent("parent");
+    child.add_child(&grandchild);
+    parent.add_child(&child);
+
+    // Time the parent, then time children within that window.
+    parent.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    child.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+
+    grandchild.watch().resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    grandchild.watch().stop();
+
+    child.watch().stop();
+    parent.watch().stop();
+
+    auto result = HierarchicalStopWatchResult(parent);
+    EXPECT_FALSE(result.is_group());
+
+    auto unaccounted = result.unaccounted();
+
+    // All components should be non-negative.
+    EXPECT_GE(unaccounted.wallclock.count(), 0);
+    EXPECT_GE(unaccounted.user.count(), 0);
+    EXPECT_GE(unaccounted.system.count(), 0);
 }
 
 TEST(HierarchicalStopWatchResult, CopiesChildrenRecursively) {

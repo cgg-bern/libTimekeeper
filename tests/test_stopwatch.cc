@@ -82,6 +82,43 @@ TEST(StopWatch, ElapsedIsZeroBeforeFirstResume) {
     EXPECT_EQ(elapsed.system.count(), 0);
 }
 
+TEST(StopWatch, ElapsedComponentsAreNonNegative) {
+    StopWatch sw;
+    sw.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    sw.stop();
+
+    auto elapsed = sw.elapsed();
+    EXPECT_GE(elapsed.wallclock.count(), 0);
+    EXPECT_GE(elapsed.user.count(), 0);
+    EXPECT_GE(elapsed.system.count(), 0);
+}
+
+TEST(StopWatch, ResetAfterMultipleCyclesClearsEverything) {
+    StopWatch sw;
+
+    // Accumulate some time.
+    for (int i = 0; i < 3; ++i) {
+        sw.resume();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        sw.stop();
+    }
+
+    auto elapsed_before = sw.elapsed();
+    size_t count_before = sw.count();
+    ASSERT_GT(count_before, 0u);
+    ASSERT_GT(elapsed_before.wallclock.count(), 0);
+
+    // Reset should clear everything.
+    sw.reset();
+
+    EXPECT_EQ(sw.elapsed().wallclock.count(), 0);
+    EXPECT_EQ(sw.elapsed().user.count(), 0);
+    EXPECT_EQ(sw.elapsed().system.count(), 0);
+    EXPECT_EQ(sw.count(), 0u);
+    EXPECT_FALSE(sw.running());
+}
+
 TEST(StopWatch, MultipleResumesAndStopsAreIdempotent) {
     StopWatch sw;
 
@@ -91,4 +128,23 @@ TEST(StopWatch, MultipleResumesAndStopsAreIdempotent) {
         sw.stop();
     }
     EXPECT_EQ(sw.count(), 10u);
+}
+
+TEST(StopWatch, ElapsedAccumulatesUserAndSystemTime) {
+    StopWatch sw;
+
+    // Perform some work to generate user/system CPU time.
+    sw.resume();
+    volatile double result = 0;
+    for (int i = 0; i < 100000; ++i) {
+        result += static_cast<double>(i) * 0.001;
+    }
+    sw.stop();
+
+    auto elapsed = sw.elapsed();
+    EXPECT_GT(elapsed.wallclock.count(), 0);
+    // User/system time may be zero on some platforms (e.g., macOS per-thread),
+    // but should never be negative.
+    EXPECT_GE(elapsed.user.count(), 0);
+    EXPECT_GE(elapsed.system.count(), 0);
 }
