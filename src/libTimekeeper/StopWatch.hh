@@ -136,7 +136,9 @@ public:
 
 private:
     friend std::ostream& operator<<(std::ostream& os, const HierarchicalStopWatch &sw);
+    friend class HierarchicalStopWatchTest;
 
+public:
     void add_child(HierarchicalStopWatch *sw)
     {
         children_.push_back(sw);
