@@ -105,12 +105,12 @@ public:
     constexpr StopWatch const &watch() const { return watch_; }
     size_t count() const { return watch_.count(); }
     /// Own clock is not used, just a total of children
-    bool is_group() const { return count() == 0; }
+    bool is_group() const { return children_.size() > 0; }
     Duration elapsed() const {
       if (is_group()) {
         Duration total = Duration::zero();
         for (auto child: children_) {
-            total += child->watch().elapsed();
+            total += child->elapsed();
         }
         return total;
       } else {
@@ -136,7 +136,6 @@ public:
 
 private:
     friend std::ostream& operator<<(std::ostream& os, const HierarchicalStopWatch &sw);
-    friend class HierarchicalStopWatchTest;
 
 public:
     void add_child(HierarchicalStopWatch *sw)
