@@ -24,5 +24,10 @@ struct Duration {
     system    -= other.system;
     return *this;
   }
+  [[nodiscard]]
+  friend Duration operator-(Duration lhs, Duration const& rhs) {
+    lhs -= rhs;
+    return lhs;
+  }
 };
-}
+} // namespace Timekeeper
