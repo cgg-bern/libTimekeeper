@@ -58,26 +58,33 @@ bool is_group() const { return is_group_; }
 
 ---
 
-### 4. Unsigned underflow in unaccounted time calculation
+### 4. Unsigned underflow in unaccounted time calculation ~~(FIXED)~~
 
-**File:** `src/libTimekeeper/StopWatchPrinting.hh` — `HierarchicalStopWatchResult::unaccounted()`
+**File:** `src/libTimekeeper/Duration.hh` — `Duration::operator-=`
+
+Previously, subtracting a larger duration from a smaller one silently wrapped to a huge number due to unsigned arithmetic:
 ```cpp
-Duration dur = duration;
-for (const auto &child: children) {
-    dur -= child.duration;   // wraps around if negative!
+// OLD: wraps around on underflow
+Duration &operator-=(Duration const& other) {
+    wallclock -= other.wallclock;
+    user      -= other.user;
+    system    -= other.system;
+    return *this;
 }
 ```
 
-`Duration::Dur` is `std::chrono::microseconds`, which is **unsigned**. If the sum of children's durations exceeds the parent's total, subtraction silently wraps to a huge number. This produces nonsensical output (e.g., "4294967295 ms").
+This produced nonsensical output (e.g., `"4294967295 ms"`) when child durations exceeded the parent total.
 
-**Suggested fix:** Use signed duration types internally for subtractions, or check for underflow before subtracting:
+**Fix applied:** The `-=` operator now clamps each component to zero instead of wrapping:
 ```cpp
-if (child.duration > dur) {
-    // handle negative — clamp to zero or use a signed type
-} else {
-    dur -= child.duration;
+Duration &operator-=(Duration const& other) {
+    if (wallclock >= other.wallclock) wallclock -= other.wallclock;
+    else                              wallclock = Dur::zero();
+    // ... same for user and system ...
 }
 ```
+
+This prevents silent data corruption while keeping the unsigned type. Negative unaccounted time is clamped to zero rather than overflowing.
 
 ---
 
@@ -142,16 +149,19 @@ Or at least round to nearest millisecond and show sub-ms values when significant
 
 ## Low Severity / Style
 
-### 8. `[[nodiscard]]` on constructors is confusing
+### 8. ~~`[[nodiscard]]` on constructors is confusing~~ — **Not an issue**
 
-**File:** `src/libTimekeeper/StopWatch.hh` — `ScopedStopWatch` constructors
+This was initially flagged but retracted after review.
+
+Applying `[[nodiscard]]` to `ScopedStopWatch`'s constructor serves a real purpose: it prevents users from accidentally writing:
 ```cpp
-[[nodiscard]] ScopedStopWatch(StopWatch &watch)
+ScopedStopWatch{sw};  // ⚠️ temporary destroyed at semicolon → measures nothing!
 ```
-
-While valid C++20, applying `[[nodiscard]]` to a constructor is unusual and produces warnings when users write `ScopedStopWatch(sw);` without binding the result. The intent seems to be that users should bind it to a variable (e.g., `auto guard = ScopedStopWatch{sw};`), but this pattern is non-idiomatic for RAII types.
-
-**Suggested fix:** Remove `[[nodiscard]]`. Users who forget to bind the object will get a warning from the unused-variable compiler flag, which is sufficient.
+The warning forces them to bind the object so it lives until scope exit:
+```cpp
+auto guard = ScopedStopWatch{sw};   // ✅ correct RAII usage
+```
+This is a legitimate use of `[[nodiscard]]` on a constructor.
 
 ---
 
@@ -216,7 +226,7 @@ Constructing a `HierarchicalStopWatchResult` creates a full deep copy of the ent
 | 1 | Critical   | `StopWatch.hh`                    | C++20 designated init in C++17 codebase  |
 | 2 | Critical   | `StopWatch.hh`                    | Dangling raw pointers, no cleanup        |
 | 3 | High       | `StopWatch.hh`                    | `is_group()` misclassifies reset nodes   |
-| 4 | High       | `StopWatchPrinting.hh`            | Unsigned underflow in unaccounted calc   |
+| 4 | ~~High~~ (FIXED) | `Duration.hh`                 | Unsigned underflow in unaccounted calc   |
 | 5 | Medium     | `json.hh`                         | Duplicate child names overwrite          |
 | 6 | Medium     | `json.hh`                         | Runtime throw instead of compile error   |
 | 7 | Low        | `StopWatchPrinting.hh`            | Sub-ms precision lost in output          |
