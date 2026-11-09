@@ -155,18 +155,31 @@ std::ostream& operator<<(std::ostream& os, const HierarchicalStopWatch &sw);
 
 /**
  * RAII helper to conveniently time the execution of parts of the code.
- * If the given watch is stopped at construction time, it will resume it and stop when it goes out of scope.
- * If it is already running at construction time, do nothing (not upon destruction either).
+ *
+ * Construction resumes a stopped watch; destruction stops it again.
+ * If the watch is already running at construction, nothing happens
+ * (it will not be stopped on destruction either).
+ *
+ * Example:
+ *   void foo() {
+ *       auto guard = ScopedStopWatch{sw_foo};  // starts sw_foo
+ *       // ... work ...
+ *   }  // stops sw_foo here
+ *
+ * @note The object must be bound to a variable (e.g. `auto guard = ...`)
+ *       so that it lives until the enclosing scope ends. Writing
+ *       `ScopedStopWatch{sw};` without binding creates a temporary
+ *       that is destroyed at the semicolon, measuring nothing.
  */
 class ScopedStopWatch
 {
 public:
-    [[nodiscard]] ScopedStopWatch(StopWatch &watch)
+    [[nodiscard]] explicit ScopedStopWatch(StopWatch &watch)
         : watch_(watch)
     {
         maybe_start();
     }
-    [[nodiscard]] ScopedStopWatch(HierarchicalStopWatch &hsw)
+    [[nodiscard]] explicit ScopedStopWatch(HierarchicalStopWatch &hsw)
         : ScopedStopWatch(hsw.watch())
     {}
 

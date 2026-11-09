@@ -120,7 +120,7 @@ inline void add_to_table(PT &table, const HierarchicalStopWatchResult &wr, size_
     dur_user = format_ms(wr.duration.user);
     dur_sys  = format_ms(wr.duration.system);
     count = std::to_string(wr.count);
-    if (wr.is_group()) {
+    if (wr.count == 0) {
       table.add_row({tree_name, "", "", "", ""});
     } else {
       table.add_row({tree_name, dur_wall, dur_user, dur_sys, count});
@@ -136,7 +136,7 @@ inline void add_to_table(PT &table, const HierarchicalStopWatchResult &wr, size_
         tree_total.append(symbol_vert);
       }
       tree_total.append(symbol_lastbranch);
-      if (!wr.is_group()) {
+      if (wr.count > 0) {
         tree_total.append("(unaccounted)");
         auto unaccounted = wr.unaccounted();
         dur_wall = format_ms(unaccounted.wallclock);
